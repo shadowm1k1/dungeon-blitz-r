@@ -1822,7 +1822,10 @@ export class MissionHandler {
         const bossEntity = bossId > 0
             ? GlobalState.levelEntities.get(scope)?.get(bossId) ?? client.entities.get(bossId)
             : null;
-        const completionEligibleAtStart = Boolean(
+        const tutorialBossDefeatedAtStart = getScopeLevelName(scope) === 'TutorialDungeon' &&
+            Math.max(0, Math.round(Number(roomId ?? 0))) === 11 &&
+            Boolean(TutorialDungeonMechanics.getSnapshot(scope)?.bossDefeated);
+        const completionEligibleAtStart = tutorialBossDefeatedAtStart || Boolean(
             bossEntity &&
             (
                 bossEntity.playerDamageContributed ||

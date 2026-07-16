@@ -490,15 +490,7 @@ function patchBossRoom(source) {
          if(this.ServerAuthoritySnapshotValue(param2,"bossDead") == "1" && !Boolean(this["serverAuthorityBossDead"]))
          {
             this["serverAuthorityBossDead"] = true;
-            this.am_Boss.bHoldSpawn = true;
-            this.am_Boss.bHoldSpawn = true;
-            this.am_Boss.Remove();
             param1.SetPhase(this.AfterBossTick);
-         }
-         if(this.ServerAuthoritySnapshotValue(param2,"annaFreed") == "1" && this.ServerAuthoritySnapshotValue(param2,"bossDead") == "1" && !Boolean(this["serverAuthorityBossRoomComplete"]))
-         {
-            this["serverAuthorityBossRoomComplete"] = true;
-            param1.SetPhase(null);
          }
       }
     `, eol),
@@ -533,34 +525,44 @@ function patchBossRoom(source) {
     .replace('if(this.ServerAuthoritySnapshotValue(param2,"bossDead") == "1")', 'if(this.ServerAuthoritySnapshotValue(param2,"bossDead") == "1" && !Boolean(this["serverAuthorityBossDead"]))')
     .replace(
       /(if\(this\.ServerAuthoritySnapshotValue\(param2,"bossDead"\) == "1" && !Boolean\(this\["serverAuthorityBossDead"\]\)\)\r?\n\s*\{\r?\n)(\s*this\.am_Boss\.Remove\(\);)/,
-      `$1            this["serverAuthorityBossDead"] = true;${eol}            this.am_Boss.bHoldSpawn = true;${eol}$2`
+      `$1            this["serverAuthorityBossDead"] = true;${eol}$2`
     )
+    .replace(/\s*this\.am_Boss\.bHoldSpawn = true;\r?\n\s*this\.am_Boss\.bHoldSpawn = true;\r?\n\s*this\.am_Boss\.Remove\(\);/g, '')
+    .replace(/\s*this\.am_Boss\.bHoldSpawn = true;\r?\n\s*this\.am_Boss\.Remove\(\);/g, '')
+    .replace(/\s*this\.am_Boss\.Remove\(\);/g, '')
     .replace(
-      'if(this.ServerAuthoritySnapshotValue(param2,"annaFreed") == "1" && this.ServerAuthoritySnapshotValue(param2,"bossDead") == "1")',
-      'if(this.ServerAuthoritySnapshotValue(param2,"annaFreed") == "1" && this.ServerAuthoritySnapshotValue(param2,"bossDead") == "1" && !Boolean(this["serverAuthorityBossRoomComplete"]))'
-    )
-    .replace(
-      /(if\(this\.ServerAuthoritySnapshotValue\(param2,"annaFreed"\) == "1" && this\.ServerAuthoritySnapshotValue\(param2,"bossDead"\) == "1" && !Boolean\(this\["serverAuthorityBossRoomComplete"\]\)\)\r?\n\s*\{\r?\n)(\s*param1\.SetPhase\(null\);)/,
-      `$1            this["serverAuthorityBossRoomComplete"] = true;${eol}$2`
+      /\s*if\(this\.ServerAuthoritySnapshotValue\(param2,"annaFreed"\) == "1" && this\.ServerAuthoritySnapshotValue\(param2,"bossDead"\) == "1"(?: && !Boolean\(this\["serverAuthorityBossRoomComplete"\]\))?\)\r?\n\s*\{\r?\n\s*(?:this\["serverAuthorityBossRoomComplete"\] = true;\r?\n\s*)?param1\.SetPhase\(null\);\r?\n\s*\}/,
+      ''
     );
 
+  if (!patched.includes('param2 == 0.8 && Boolean(this["serverAuthorityBossWave80"])')) {
+    patched = patched.replace(
+      '         return Boolean(param1) && param1.AtHealth(param2);',
+      [
+        '         if(param2 == 0.8 && Boolean(this["serverAuthorityBossWave80"]))',
+        '         {',
+        '            return false;',
+        '         }',
+        '         if(param2 == 0.5 && Boolean(this["serverAuthorityBossWave50"]))',
+        '         {',
+        '            return false;',
+        '         }',
+        '         if(param2 == 0.33 && Boolean(this["serverAuthorityBossWave33"]))',
+        '         {',
+        '            return false;',
+        '         }',
+        '         return Boolean(param1) && param1.AtHealth(param2);'
+      ].join(eol)
+    );
+  }
+
   patched = patched.replace(
-    '         return Boolean(param1) && param1.AtHealth(param2);',
-    [
-      '         if(param2 == 0.8 && Boolean(this["serverAuthorityBossWave80"]))',
-      '         {',
-      '            return false;',
-      '         }',
-      '         if(param2 == 0.5 && Boolean(this["serverAuthorityBossWave50"]))',
-      '         {',
-      '            return false;',
-      '         }',
-      '         if(param2 == 0.33 && Boolean(this["serverAuthorityBossWave33"]))',
-      '         {',
-      '            return false;',
-      '         }',
-      '         return Boolean(param1) && param1.AtHealth(param2);'
-    ].join(eol)
+    'if(this.ServerAuthorityVisualCueDefeated(this.am_Chains))',
+    'if((this.bChainsBroken || this.ServerAuthorityVisualCueDefeated(this.am_Chains)) && !Boolean(this["serverAuthorityThankYouPlayed"]))'
+  );
+  patched = patched.replace(
+    /(if\(\(this\.bChainsBroken \|\| this\.ServerAuthorityVisualCueDefeated\(this\.am_Chains\)\) && !Boolean\(this\["serverAuthorityThankYouPlayed"\]\)\)\r?\n\s*\{\r?\n)(\s*this\.am_Anna\.SetAnimation\("Sexy"\);)/,
+    `$1            this["serverAuthorityThankYouPlayed"] = true;${eol}            this.bChainsBroken = true;${eol}$2`
   );
 
   const initRoomRange = findMethodRange(patched, 'InitRoom');
@@ -625,8 +627,6 @@ function verifyBossRoom(source, label) {
     'this["serverAuthorityBossWave80"]',
     'param1.Ambush("am_WaveOne");',
     'this["serverAuthorityBossDead"] = true;',
-    'this["serverAuthorityBossRoomComplete"] = true;',
-    'this.am_Boss.bHoldSpawn = true;',
     'param2 == 0.8 && Boolean(this["serverAuthorityBossWave80"])',
     'this.ServerAuthorityVisualBossAtHealth(this.am_Boss,0.8)',
     'this.ServerAuthorityVisualBossAtHealth(this.am_Boss,0.5)',
@@ -634,14 +634,20 @@ function verifyBossRoom(source, label) {
     'this.ServerAuthorityVisualCueDefeated(this.am_Boss)',
     'this.ServerAuthorityVisualCueDefeated(this.am_Chains)',
     'param1.cutSceneStartBoss = [',
-    'param1.cutSceneDefeatBoss = ['
+    'param1.cutSceneDefeatBoss = [',
+    'param1.SetPhase(this.AfterBossTick);',
+    'param1.PlayScript(this.Script_ThankYou);',
+    'this["serverAuthorityThankYouPlayed"] = true;',
+    'this.bChainsBroken || this.ServerAuthorityVisualCueDefeated(this.am_Chains)'
   ]);
   rejectMarkers(source, label, [
     'this.am_Boss.AtHealth(0.8)',
     'this.am_Boss.AtHealth(0.5)',
     'this.am_Boss.AtHealth(0.33)',
     'this.am_Boss.Defeated()',
-    'this.am_Chains.Defeated()'
+    'this.am_Chains.Defeated()',
+    'serverAuthorityBossRoomComplete',
+    'this.am_Boss.Remove()'
   ]);
 }
 

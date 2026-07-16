@@ -887,18 +887,19 @@ async function testLateAnnaChainCannotDeadlockBossCompletion(): Promise<void> {
     MissionHandler.noteDungeonCutsceneStart(client as never, 11);
     const beforeCutsceneEnd = DungeonCompletionSystem.evaluate(scope);
     assert.equal(beforeCutsceneEnd.ready, false, 'boss completion must not bypass the active end cutscene');
-    assert.equal(beforeCutsceneEnd.reason, 'cutscene_gate_pending');
+    assert.equal(beforeCutsceneEnd.reason, 'objectives_pending');
     assert.equal(packetCount(client, 0x87), 0, 'rank result must remain hidden until the end cutscene finishes');
 
     MissionHandler.noteDungeonCutsceneEnd(client as never, 11);
     await sleep(5);
 
-    assert.equal(DungeonCompletionSystem.evaluate(scope).objectivesMet, true);
-    assert.equal(packetCount(client, 0x87), 1, 'boss defeat cutscene should emit one rank result');
+    assert.equal(DungeonCompletionSystem.evaluate(scope).objectivesMet, false, 'Anna rescue should remain required after boss death');
+    assert.equal(packetCount(client, 0x87), 0, 'boss defeat cutscene alone should not emit rank before Anna is freed');
 
     await MissionHandler.handleForcedDungeonObjectiveCompletion(client as never, annaChainEntity());
     await sleep(5);
-    assert.equal(packetCount(client, 0x87), 1, 'late chain state must not deadlock or duplicate completion');
+    assert.equal(DungeonCompletionSystem.evaluate(scope).objectivesMet, true);
+    assert.equal(packetCount(client, 0x87), 1, 'late Anna chain state must release completion exactly once');
 }
 
 function testScriptedObjectiveStateIsIdempotent(): void {
@@ -1120,6 +1121,56 @@ function testChestRewardIsOncePerEligibleParticipant(): void {
     assert.equal(lateJoiner.pendingLoot.size, 0, 'late joiner should see the opened chest without receiving a retroactive reward');
 }
 
+function testChestRewardSurvivesMissingLocalCue(): void {
+    const opener = createFakeClient('ChestNoCueOpener', 61404);
+    opener.currentRoomId = 5;
+    resetFor(opener);
+    GlobalState.sessionsByToken.set(opener.token, opener as never);
+
+    RewardHandler.handleGrantReward(
+        opener as never,
+        buildGrantRewardPayload(TutorialDungeonMechanics.TUTORIAL_CHEST_ID, opener.clientEntID, 4)
+    );
+
+    const scope = getClientLevelScope(opener as never);
+    assert.equal(
+        TutorialDungeonMechanics.getWorldObjectState(scope, TutorialDungeonMechanics.TUTORIAL_CHEST_ID)?.lifecycle,
+        'opened',
+        'chest reward packet should open the authority chest even after the local cue was removed'
+    );
+    assert.equal(opener.pendingLoot.size, 1, 'missing local chest cue swallowed the reward drop');
+}
+
+function testLegacyTagUgoRewardUsesCanonicalDeathContext(): void {
+    const player = createFakeClient('LegacyBossReward', 61405);
+    player.currentRoomId = 11;
+    resetFor(player);
+    GlobalState.sessionsByToken.set(player.token, player as never);
+
+    const scope = getClientLevelScope(player as never);
+    const canonicalBoss = {
+        ...bossEntity(0, 1000),
+        destroyed: true,
+        deathFinalizedAt: Date.now(),
+        lifeNonce: 1,
+        x: 22695,
+        y: 2959
+    };
+    GlobalState.levelEntities.set(scope, new Map([[TutorialDungeonMechanics.TAG_UGO_BOSS_ID, canonicalBoss]]));
+
+    RewardHandler.handleGrantReward(
+        player as never,
+        buildGrantRewardPayload(TutorialDungeonMechanics.TAG_UGO_BOSS_ID, player.clientEntID, 10)
+    );
+
+    assert.equal(player.pendingLoot.size > 0, true, 'legacy Tag Ugo reward packet did not create server loot');
+    assert.equal(
+        String(canonicalBoss.lootDropNonce ?? ''),
+        `${scope}:${TutorialDungeonMechanics.TAG_UGO_BOSS_ID}:1`,
+        'Tag Ugo reward should be tied to the canonical death nonce'
+    );
+}
+
 function testCutscenePhaseAndOwnerDepartureAreServerOwned(): void {
     const owner = createFakeClient('PresentationOwner', 61501);
     const peer = createFakeClient('PresentationPeer', 61502);
@@ -1221,6 +1272,8 @@ async function main(): Promise<void> {
     await testOrderedDummiesOpenGateForLateJoiner();
     await testSharedTagUgoHpDeathAndReplayDedupe();
     testChestRewardIsOncePerEligibleParticipant();
+    testChestRewardSurvivesMissingLocalCue();
+    testLegacyTagUgoRewardUsesCanonicalDeathContext();
     testCutscenePhaseAndOwnerDepartureAreServerOwned();
     await testCompletionAndRankAreOncePerEligibleParticipant();
     console.log('goblin_kidnappers_server_authority_regression: ok');

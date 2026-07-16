@@ -1083,9 +1083,24 @@ export class RewardHandler {
         }
 
         const levelScope = getClientLevelScope(client);
+        const authoritySource = sourceEntity ?? {
+            id: authority.id,
+            name: authority.name,
+            roomId: authority.roomId,
+            x: authority.x,
+            y: authority.y,
+            team: 2,
+            isPlayer: false,
+            tutorialDungeonStableId: authority.stableId
+        };
         if (!TutorialDungeonMechanics.isWorldObjectResolved(levelScope, authority.stableId)) {
-            const transition = TutorialDungeonMechanics.commitClientObjectDefeat(client, sourceEntity);
-            if (!transition.accepted) {
+            const transition = sourceEntity
+                ? TutorialDungeonMechanics.commitClientObjectDefeat(client, sourceEntity)
+                : null;
+            const events = transition?.accepted
+                ? transition.events
+                : TutorialDungeonMechanics.noteEntityDefeated(client, authoritySource);
+            if (!transition?.accepted && events.length === 0) {
                 return true;
             }
             EntityHandler.broadcastTutorialDungeonObjectTransition(client, authority);
@@ -1111,18 +1126,56 @@ export class RewardHandler {
                 recipient,
                 { ...reward, sourceId: authority.id },
                 `${authority.stableId}:${claim.openVersion}:${participantKey}`,
-                sourceEntity ?? {
-                    id: authority.id,
-                    name: authority.name,
-                    x: authority.x,
-                    y: authority.y,
-                    roomId: authority.roomId,
-                    tutorialDungeonStableId: authority.stableId
-                },
+                authoritySource,
                 dropPosition,
                 { reason: 'chest_reward', caller: 'authoritative_tutorial_chest' }
             );
         }
+        return true;
+    }
+
+    private static handleAuthoritativeTutorialBossReward(
+        client: Client,
+        reward: RewardRequest,
+        sourceEntity: any
+    ): boolean {
+        if (!TutorialDungeonMechanics.isTutorialDungeon(client.currentLevel)) {
+            return false;
+        }
+
+        const authority = TutorialDungeonMechanics.getAuthorityEntity(
+            sourceEntity ?? { id: reward.sourceId },
+            Number(client.currentRoomId ?? 0)
+        );
+        if (authority?.role !== 'boss') {
+            return false;
+        }
+
+        const levelScope = getClientLevelScope(client);
+        const canonicalBoss = GlobalState.levelEntities.get(levelScope)?.get(TutorialDungeonMechanics.TAG_UGO_BOSS_ID);
+        const finalized = Boolean(
+            canonicalBoss &&
+            canonicalBoss.dead === true &&
+            canonicalBoss.destroyed === true &&
+            Math.max(0, Math.round(Number(canonicalBoss.deathFinalizedAt ?? 0))) > 0
+        );
+        if (!finalized) {
+            return false;
+        }
+
+        let lootDropNonce = String(canonicalBoss.lootDropNonce ?? '');
+        if (!lootDropNonce) {
+            const lifeNonce = Math.max(0, Math.round(Number(canonicalBoss.lifeNonce ?? canonicalBoss.deathVersion ?? 1)) || 1);
+            lootDropNonce = `${levelScope}:${TutorialDungeonMechanics.TAG_UGO_BOSS_ID}:${lifeNonce}`;
+            canonicalBoss.lootDropNonce = lootDropNonce;
+        }
+        canonicalBoss.lootDropped = true;
+        RewardHandler.grantServerEnemyRewardToEligibleViewers(client, canonicalBoss, {
+            levelScope,
+            lootDropNonce,
+            sourceEnemyCanonicalId: TutorialDungeonMechanics.TAG_UGO_BOSS_ID,
+            caller: 'authoritative_tutorial_boss_legacy_reward'
+        });
         return true;
     }
 
@@ -1153,6 +1206,9 @@ export class RewardHandler {
         const sourceEntity = RewardHandler.resolveSourceEntity(client, reward.sourceId);
         const dropPosition = RewardHandler.resolveDropPosition(client, sourceEntity, reward.worldX, reward.worldY);
         if (RewardHandler.handleAuthoritativeTutorialChestReward(client, reward, sourceEntity, dropPosition)) {
+            return;
+        }
+        if (RewardHandler.handleAuthoritativeTutorialBossReward(client, reward, sourceEntity)) {
             return;
         }
         const { rewardNonce, recipients } = RewardHandler.resolveEligibleRecipients(client, reward.sourceId);

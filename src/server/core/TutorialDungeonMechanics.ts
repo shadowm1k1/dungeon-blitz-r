@@ -473,7 +473,7 @@ export class TutorialDungeonMechanics {
             `bossMaxHp=${snapshot.bossMaxHp}`,
             `bossHpVersion=${snapshot.bossHpVersion}`,
             `bossDeathVersion=${snapshot.bossDeathVersion}`,
-            `bossDead=${flag(snapshot.bossDefeated && snapshot.bossTombstoned)}`,
+            `bossDead=${flag(snapshot.bossDefeated)}`,
             `annaFreed=${flag(snapshot.annaFreed)}`,
             `w80=${flag(snapshot.bossWave80)}`,
             `w50=${flag(snapshot.bossWave50)}`,
